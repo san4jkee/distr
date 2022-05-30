@@ -1,0 +1,98 @@
+version: '3.8'
+services:
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.6.1
+    container_name: es01
+    environment:
+      - node.name=es01
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01
+      - cluster.initial_master_nodes=es01
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data01:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - elastic 
+  kib01:
+    image: docker.elastic.co/kibana/kibana:7.6.1
+    container_name: kib01
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://es01:9200
+      ELASTICSEARCH_HOSTS: http://es01:9200
+    depends_on: 
+      - es01
+    networks:
+      - elastic
+  log01: 
+    image: docker.elastic.co/logstash/logstash:7.6.1
+    container_name: log01
+    ports:
+      - 5044:5044
+      - 9600:9600
+    environment:
+      - "LS_JAVA_OPTS=-Xms512m -Xmx512m"
+      - XPACK_SECURITY_ENABLED=false
+      - XPACK_REPORTING_ENABLED=false
+      - XPACK_MONITORING_ENABLED=false 
+      - ELASTIC_HOST=es01:9200
+    command: 
+      logstash -f /etc/logstash/conf.d/logstash.conf
+    volumes:
+      - ./LogStash/Conf/logstash.conf:/etc/logstash/conf.d/logstash.conf
+      - ./LogStash:/etc/logstash/parsers
+      - ./LogStash/Conf/logstash.yml:/etc/logstash/logstash.yml
+      - ./LogStash/templates/rxlog.json:/etc/logstash/rxlog.json
+    networks:
+      - elastic
+  grafana01:
+    build: ./Grafana
+#to use port 80 use this parameter setting: -"80:3000"
+    ports:
+      - "3000:3000"
+    # Set home dashboard. Working in grafana 7.1.3.        
+    environment:
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/provisioning/dashboards/General/Homepage.json   
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_USERS_VIEWERS_CAN_EDIT=true
+    # Grafana Image render plugin settings
+      - GF_RENDERING_SERVER_URL=http://rend01:8081/render
+      - GF_RENDERING_CALLBACK_URL=http://grafana01:3000/
+      - GF_LOG_FILTERS:rendering:debug
+    # SMTP settigs for Grafana email notification
+      #- GF_IGNORE_HTTPS_ERRORS=true
+      #- GF_SMTP_ENABLED=true
+      #- GF_SMTP_HOST=mail.company.com:500
+      #- GF_SMTP_USER=mailuser@company.com
+      #- GF_SMTP_PASSWORD=password
+      #- GF_SMTP_FROM_ADDRESS=mail@company.ru
+      #- GF_SMTP_FROM_NAME=Grafana
+      #- GF_SMTP_EHLO_IDENTITY=
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./Grafana/grafanaplug/piechart/dist:/var/lib/grafana/plugins/grafana-piechart-panel
+    networks:
+      - elastic
+# Grafana image render plugin
+  rend01:
+    image: grafana/grafana-image-renderer:2.0.0
+    ports:
+      - 8081
+    environment:
+      ENABLE_METRICS: 'true'
+    networks:
+      - elastic
+
+volumes:
+  data01:
+  grafana-storage:
+networks:
+  elastic:
